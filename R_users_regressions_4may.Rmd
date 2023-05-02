@@ -1,0 +1,459 @@
+---
+title: "Regressions in R"
+author: "Abhay Singh"
+date: "`r Sys.Date()`"
+output: 
+  html_document: default
+  bookdown::word_document2:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Linear Regression 
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(tidy=TRUE,tidy.opts=list(keep.blank.lines=TRUE,width.cutoff=70),fig.env='figure',message=FALSE,warning=FALSE,comment="")
+```
+
+
+
+**Introduction**
+
+- Regression analysis is one of the most widely used tool in quantitative research which is used to analyse the relationship between variables.
+
+- One or more variables are considered to be explanatory variables, and the other is considered to be the dependent variable.
+
+- In general linear regression is used to predict a continuous dependent variable (regressand) from a number of independent variables (regressors) assuming that the relationship between the dependent and independent variables is linear.
+
+-  If we have a dependent (or response) variable Y which is related to a predictor variables $X_{i}$. The simple regression model is given by
+
+
+$$Y=\alpha+\beta X_{i}+\epsilon_{i}$$
+
+ 
+- R has the function $\mathtt{lm}$ (linear model) for linear regression. 
+
+- The main arguments to the function $\mathtt{lm}$ are a formula and the data. $\mathtt{lm}$ takes the defining model input as a formula
+- A formula object is also used in other statistical function like $\mathtt{glm,\,nls,\,rq}$ etc, which is from a *formula* class.
+
+## Investment $\beta$ using R (Single Index Model)
+
+The 'market model' regression can be represented as the following regression. 
+
+
+
+$$R_{i}=\alpha+\beta_{i}R_{M}+\epsilon$$
+ 
+
+
+## Data preprocessing
+
+- Download stock data using R's quantmod package
+- Convert data to returns
+- Generate some descriptive statistics
+- Some plots
+
+- Data 
+
+
+```{r,eval=FALSE}
+#Run the following to download and save the data, this should be done once and when updating the time period
+library(quantmod)
+library(pander)
+library(xts)
+library(TTR)
+#download stock
+BHP=getSymbols("BHP.AX",from="2019-01-01",to="2021-07-31",auto.assign=FALSE)
+#download index
+ASX=getSymbols("^AXJO",from="2019-01-01",to="2021-07-31",auto.assign=FALSE)
+#save both in rds (to be used in the TA chapter)
+saveRDS(BHP,file="data/bhp_prices.rds")
+saveRDS(ASX,file="data/asx200.rds")
+```
+
+- Convert to returns
+
+```{r}
+library(quantmod)
+library(pander)
+library(xts)
+library(TTR)
+#load data from the saved files (not required if we execute the chunk above)
+BHP=readRDS("data/bhp_prices.rds")
+ASX=readRDS("data/asx200.rds")
+#using close prices
+bhp2=BHP$BHP.AX.Close
+asx2=ASX$AXJO.Close
+#covert to returns
+
+bhp_ret=dailyReturn(bhp2,type="log")
+asx_ret=dailyReturn(asx2,type="log")
+
+#merge the two with 'inner' join to get the same dates
+data_lm1=merge.xts(bhp_ret,asx_ret,join="inner")
+#convert to data frame
+data_lm2=data.frame(index(data_lm1),data_lm1$daily.returns,data_lm1$daily.returns.1)
+#change column names
+colnames(data_lm2)=c("Date","bhp","asx")
+head(data_lm2) #there are row names which can be removed if required
+
+library(pastecs)
+desc_stat1=stat.desc(data_lm2[,2:3],norm=TRUE)
+pander(desc_stat1,caption = "Descriptive Statistics",split.table=Inf)
+```
+
+## Visualisation 
+```{r}
+library(ggplot2)
+library(tidyr)
+
+p1=ggplot(data_lm2,aes(asx,bhp))
+p1+geom_point(colour="brown")+geom_smooth(method="lm")+theme_minimal()+labs(title = "Scatter plot of BHPvsASX and Linear Fit")
+
+p2=ggplot(data_lm2,aes(Date))
+p2+geom_line(aes(y=bhp,color="bhp"),size=1,lty=1)+geom_line(aes(y=asx,color="asx"),size=1,lty=2)+scale_color_discrete("Asset")+theme_minimal()+labs("Line Chart of Returns")
+```
+
+## Regression analysis using lm
+
+- Use lm to model the SIM
+```{r}
+lreg1=lm(formula=bhp~asx,data=data_lm2)
+summary(lreg1)#to generate main results
+pander(lreg1,add.significance.stars = T)#to tabulate
+```
+
+- Using stargazer to print the output
+
+```{r,results="asis"}
+library(stargazer)
+stargazer(lreg1,type="html",title="Regression Results")
+```
+
+
+- Diagnostic Plots
+
+```{r}
+par(mfrow=c(2,2))
+plot(lreg1)
+```
+
+# Multiple Regression
+
+- Multiple regression extends simple linear regression with more than one (1) predictor variables
+- We have one response variable and multiple independent predictor variable. 
+
+
+
+$$y_{i}=\alpha+\beta_{1}x_{1}+\beta_{2}x_{2}+\ldots+\varepsilon_{i}$$
+ 
+- The estimation process is similar to the univariate case where the additional predictors are added with `+` operator
+- A multifactor example demonstrates in the next section
+
+## Fama-French Three Factor Model
+
+- @Fama1992;@Fama1993 extended the basic CAPM to include size and book-to-market effects as explanatory factors in explaining the cross-section of stock returns. 
+
+- SMB (Small minus Big) gives the size premium which is the additional return received by investors from investing in companies having a low market capitalization. 
+
+- HML (High minus Low), gives the value premium which is the return provided to investors for investing in companies having high book-to-market values. 
+
+- The three factor Fama-French model is written as:
+
+
+$$r_{A}-r_{F}=+\beta_{A}(r_{M}-r_{F})+s_{A}SMB+h_{A}HML+\alpha+e$$
+
+
+
+Where $s_{A}$ and $h_{A}$ capture the security's sensitivity to these two additional factors. 
+
+
+### Data Preprocessing 
+- The three factors daily data is downloaded as a CSV file from the Kenneth French website. Link: https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+- AAPL stock prices are downloaded using the quantmod package
+- The following code snippets will pre-process three factor data and stock return data and then combine it in one single  
+
+```{r}
+#use read.table for text file
+ff_data=read.csv("data/F-F_Research_Data_Factors_daily.CSV",skip=3)
+ff_data=na.omit(ff_data) #remove missing values
+
+head(ff_data) #date is missing column names
+colnames(ff_data)[1]="Date"
+#convert dates in R date format
+ff_data$Date=as.Date(strptime(ff_data$Date,format="%Y%m%d"))
+head(ff_data)
+```
+
+- Download the data and convert to returns
+```{r,eval=FALSE}
+d_aapl=getSymbols("AAPL",from="2019-01-01", to="2021-09-30",auto.assign = F)
+#select closing prices and covert to log returns
+
+aapl=d_aapl$AAPL.Close
+aapl_ret=dailyReturn(aapl,type="log")
+
+#convert to data frame
+aapl_ret2=fortify.zoo(aapl_ret)#Dates column will be named Index
+
+#rename
+colnames(aapl_ret2)=c("Date","AAPL")
+
+#use merge (can use left_join from dplyr as well) to combine the stock returns and factor data
+
+data_ffex=merge(aapl_ret2,ff_data,by="Date")
+```
+
+```{r,echo=FALSE}
+data_ffex=readRDS("data/data_ffex.Rds")
+```
+
+
+### Regression Analysis
+
+- The Fama-French regression uses excess returns so first convert Apple returns to excess returns and then fit the model using the `lm` function
+
+```{r}
+#create another column with AAPL-RF
+
+data_ffex$AAPL.Rf=data_ffex$AAPL-data_ffex$RF
+
+ff_lreg=lm(AAPL.Rf~Mkt.RF+SMB+HML, data=data_ffex)
+```
+
+- A plot function can be used to plot the four regression plots similar to simple regression.
+
+```{r fig.cap="Linear Regression Plots"}
+par(mfrow=c(2,2))
+plot(ff_lreg)
+```
+
+
+- There are packages in R which provide functions to export the summary output of a regression model in a LaTeX, HTML or ASCII files. 
+- The output can also be exported to an HTML or LaTeX file which can be later used in a word/LaTeX document.
+
+```{r,results="asis"}
+stargazer(ff_lreg,summary=T,title="Fama-French Regression OLS",type="html")
+```
+
+### Visualisation
+
+- We can visulise the coefficients with their confidence intervals
+```{r, fig.cap="FF Factors with Confidence Interval"}
+s1=summary(ff_lreg) 
+c1=confint(ff_lreg) 
+
+est1=as.data.frame(cbind(s1$coefficients,c1))
+
+p1=ggplot(est1,aes(x=row.names(est1),y=Estimate,color=row.names(est1)))+geom_point()
+
+p1+geom_errorbar(aes(ymin= est1$`2.5 %` ,ymax= est1$`97.5 %` ))+ labs(title = "FF 3-Factor Coefficients",x = "", y = "coefficient",                                       caption = "data source: Fama French website") +   theme_minimal() 
+
+```
+
+- The ggeffects package provides good functionality on visualising the marginal effects and adjusted predictions. The predictions generated by a model by varying one independent variable and keeping the others constant.
+- The following example visualises the predictions based on the SMB factor
+
+```{r, fig.cap="Marginal Effect"}
+library(ggeffects)
+
+mydf=ggpredict(ff_lreg,terms=c("SMB"))
+(p_ff=plot(mydf)+geom_point(data=data_ffex,aes(x=SMB,y=AAPL.Rf),color="darkblue"))
+```
+
+# Panel Regression
+
+- Panel data or longitudinal data is a data structure which contains individuals/variables (e.g., persons, firms, countries, cities etc) observed at several points in time (days, months, years, quarters etc).
+- The dataset `GDP_l.RData` is an example of panel data where each country's GDP is recorded over several years in time. 
+```{r}
+load("data/GDP_l.RData")
+#data snapshot
+GDP_l[c(1:5,25:29,241:245),]
+```
+
+
+- Some visualisation 
+
+- Line Chart
+
+```{r pchrt1,fig.cap="Panel Data Line Chart"}
+library(ggplot2)
+p1=ggplot(GDP_l,aes(Year,GDP,group=Country))
+
+p1+geom_path(aes(color=Country))+theme_minimal()+theme(legend.position = "top")
+```
+
+- Bar Chart
+
+```{r pchrt2,fig.cap="Panel Data Bar Chart"}
+
+p1+geom_col(aes(fill=Country))+theme_minimal()+theme(legend.position = "top")
+```
+
+- Bar Chart for each country
+
+
+```{r pchrt3,fig.cap="Panel Data Bar Chart"}
+p1+geom_col(aes(fill=Country))+facet_grid(Country~.)+theme_minimal()+theme(legend.position = "top")
+
+```
+
+
+- Box plot
+
+
+```{r pchrt4,fig.cap="Panel Data Box Plot"}
+
+p2=ggplot(GDP_l, aes(Country, GDP))
+p2+geom_boxplot(aes(fill=Country))+theme_minimal()+theme(legend.position = "top")
+```
+
+- The GDP data here has a balanced panel structure, where all the variables have values for all points in time.
+
+- This chapter discussed the two basic panel regression models viz, Fixed Effect Model and Random Effect Model for balanced panel data. 
+
+- For an extensive discussion see econometrics textbooks including @Baltagi2005,@Wooldridge2010,@Greene2008 and @Stock2012.
+
+- The package plm @Croissant2008 provides methods for calculating these models, which will be used for in illustrative code. 
+
+- We will use the very popular Grunfeld panel dataset @Grunfeld1958 available in the plm package for demostration which are based on similar examples in @Croissant2008 and @Kleiber2008.
+
+## Fixed and Random effects using the `plm` package
+
+- The \mathtt{model} argument in \mathtt{plm} is set to \mathtt{within} for fixed effects model and \mathtt{random} for a random effects model.
+- The data can be converted to the required panel format using \mathtt{pdata.frame} function, which transforms a regular data frame object into a panel data structure. 
+
+-  \mathtt{index} is the main argument in the \mathtt{pdata.frame} function which specifies the panel structure, i.e, columns with individual and time variables.
+
+
+```{r}
+#Grunfeld Data representation as per pdata.frame function
+library(plm)
+data(Grunfeld)#load data
+head(Grunfeld)#data snapshot
+pdata1=pdata.frame(Grunfeld,index=c("firm","year"))
+head(pdata1)
+```
+
+## Fixed Effects Model 
+
+- We can use the plm package to replicate the following investment equation as considered by Grunfeld (Grunfeld, 1958).
+
+$$I_{it}=\alpha+\beta_{1}F_{it}+\beta_{2}C_{it}+\varepsilon_{it}$$
+
+
+
+The model in equation-1 is a one-way panel regression model which attempts to quantify the dependence of real gross investment ($I_{it}$) on the real value of the company ($F_{it}$) and real value of its capital stock ($C_{it}$). 
+
+- @Grunfeld1958 studied 10 large manufacturing firms from the United States over 20 years (1935-954). A fixed effect estimation can be obtained with the following code
+
+
+```{r}
+#using plm with "within" estimator for fixed effects
+fe1=plm(inv~value+capital,data=pdata1,model="within")
+#the output can be summarised with summary
+summary(fe1)
+
+```
+
+- The summary output for the \mathtt{fe1} fitted model object gives details about the fitted object. 
+
+- The individual fixed effects can be obtained using the function \mathtt{fixef}, a summary method is also available as shown next
+
+```{r}
+#individual fixed effects
+fixef(fe1)
+#summary 
+summary(fixef(fe1))
+
+```
+
+## Random Effects Model
+
+- A random effect model can be estimated by setting the \mathtt{model} argument to \mathtt{"random"}. 
+
+- There are five different methods available for estimation of the variance component (@Baltagi2005) which can be selected using the \mathtt{random.method} argument. 
+
+• The following output is obtained using the default Swamy-Arora (@Swamy1972) random method.
+
+```{r}
+#random effect model
+re1=plm(inv~value+capital,data=pdata1,model="random")
+#summary 
+summary(re1)
+
+```
+
+
+## Testing
+
+### Panel or OLS
+
+- It is important to test if the panel regression model is signficantly different from the OLS model. In other words, do we need a panel model or OLS model is good enough?
+
+- The function \mathtt{pFtest} in the plm package can be used to test a fitted fixed effect model against a fitted OLS model to check which regression is a better choice. 
+
+```{r}
+#Simple OLS (without the intercept) using pooling
+ols1=plm(inv~value+capital-1,data=pdata1,model="pooling")
+#summary of results 
+summary(ols1)
+```
+
+- The above OLS model can now be tested against the fixed effect model to check for the best fit. 
+```{r}
+#Testing for the better model, null: OLS is a better
+pFtest(fe1,ols1)
+```
+
+
+- Similar to the fixed effect and OLS comparison one can also check if the random effects are needed using one of the available Langrange multiplier tests (@Breusch1980 test here) test in \mathtt{plmtest} function as illustrated below
+
+```{r}
+#plmtest using the Breuch-Pagan method
+plmtest(ols1,type=c("bp"))
+```
+
+- A p-value<0.05 in the above test indicates that the Random Effect model is required.
+
+### Fixed Effect or Random Effect
+
+- The Hausman test (@Hausman1978) is the standard approach to test for model specification which can be computed using the \mathtt{phtest} function in the plm package. 
+
+```{r}
+#phtest using the fitted models in fe1 and re1
+phtest(fe1,re1)
+```
+
+- A p-value<0.05 suggests that the fixed effect model is appropriate so in this case the random effect model should be used. 
+
+
+## References
+
+Baltagi, B. (2005). Econometric analysis of panel data (3rd ed.). John Wiley & Sons.
+
+Breusch, T. S., & Pagan, A. R. (1980). The lagrange multiplier test and its applications to model specification in econometrics. The Review of Economic Studies, 239–253.
+
+Croissant, Y., & Millo, G. (2008). Panel data econometrics in r: The plm package. Journal of Statistical Software, 27(2), 1–43.
+
+Fama, E. F., & French, K. R. (1992). The cross-section of expected stock returns. The Journal of Finance, 47(2), 427–465.
+
+Fama, E. F., & French, K. R. (1993). Common risk factors in the returns on stocks and bonds. Journal of Financial Economics, 33(1), 3–56.
+
+Greene, W. H. (2008). Econometric analysis. Granite Hill Publishers.
+
+Grunfeld, Y. (1958). The determinants of corporate investment: A study of a number of large corporations in the united states (PhD thesis). Department of Photoduplication, University of Chicago Library.
+
+Hausman, J. (1978). Specification tests in econometrics. Econometrica.
+
+Kleiber, C., & Zeileis, A. (2008). Applied econometrics with r. Springer Science & Business Media.
+
+Stock, J. H., & Watson, M. W. (2012). Introduction to econometrics: Global edition. Pearson Education.
+
+Swamy, P., & Arora, S. S. (1972). The exact finite sample properties of the estimators of coefficients in the error components regression models. Econometrica: Journal of the Econometric Society, 261–275.
+
+Wooldridge, J. M. (2010). Econometric analysis of cross section and panel data. MIT press.
